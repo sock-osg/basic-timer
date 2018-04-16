@@ -92,7 +92,7 @@ void print_current_time() {
   int current_hour = curr_time.hour();
   int current_minute = curr_time.minute();
 
-  uint8_t data[] = {
+  uint8_t data[4] = {
     current_hour / 10,
     current_hour % 10,
     current_minute / 10,
@@ -100,6 +100,13 @@ void print_current_time() {
   };
 
   display.setSegments(data);
+
+  uint8_t segto = 0x0;;
+  if (curr_time.second() % 2 == 0) {
+    int value = 1244;
+    segto = 0x80 | display.encodeDigit((value / 100) % 10);
+  }
+  display.setSegments(&segto, 1, 1);
 }
 
 void print_temperature() {
@@ -107,7 +114,7 @@ void print_temperature() {
   uint8_t data[] = {
     temperature / 10,
     temperature % 10,
-    0x63,
+    0x63, // Degrees symbol
     0x0
   };
   display.setSegments(data);
