@@ -1,5 +1,5 @@
-#define BTN_HOURS_PIN            2  // Button 1
-#define BTN_MINUTES_PIN          3  // Button 2
+#define BTN_HOURS_PIN            4  // Button 1
+#define BTN_MINUTES_PIN          5  // Button 2
 
 #define DEFAULT_LONGPRESS_LEN    25  // Min nr of loops for a long press
 #define DELAY                    20  // Delay per loop in ms
@@ -61,10 +61,14 @@ int ButtonHandler::handle() {
 //////////////////////////////////////////////////////////////////////////////
 
 #include <DS3231.h>
+#include <Wire.h>
 #include <TM1637Display.h>
 
-#define CLK 9 //can be any digital pin
-#define DIO 8 //can be any digital pin
+#define CLK              3 //can be any digital pin
+#define DIO              2 //can be any digital pin
+
+#define _24_HRS_MODE_PIN 6 //can be any digital pin
+#define _24_HRS_LED_PIN 7 //can be any digital pin
 
 // Init the DS3231 using the hardware interface
 TM1637Display display(CLK, DIO);
@@ -73,8 +77,10 @@ DS3231 rtc;
 // Instantiate button objects
 ButtonHandler btn_hours(BTN_HOURS_PIN);
 ButtonHandler btn_minutes(BTN_MINUTES_PIN);
-DateTime curr_time;
-RTClib RTC;
+
+bool h12 = false;
+bool PM;
+bool _24HrsMode = false;
 
 void setup() {
   Serial.begin(9600);
@@ -85,61 +91,81 @@ void setup() {
 
   btn_hours.init();
   btn_minutes.init();
+
+  pinMode(_24_HRS_MODE_PIN, INPUT);
+  pinMode(_24_HRS_LED_PIN, OUTPUT);
+}
+
+byte getHour() {
+  byte hour = rtc.getHour(h12, PM);
+
+  if (_24HrsMode) {
+    if (hour > 12) {
+      digitalWrite(_24_HRS_LED_PIN, HIGH);
+    } else {
+      digitalWrite(_24_HRS_LED_PIN, LOW);
+    }
+
+    if (hour == 0) {
+      hour = 12;
+    } else if (hour >= 13) {
+      hour = hour - 12;
+    }
+  } else {
+    digitalWrite(_24_HRS_LED_PIN, LOW);
+  }
+
+  return hour;
 }
 
 void print_current_time() {
-  curr_time = RTC.now();
-  int current_hour = curr_time.hour();
-  int current_minute = curr_time.minute();
+  byte current_hour = getHour();
+  byte current_minute = rtc.getMinute();
+  
+  byte tens_curr_hour = current_hour / 10;
+  byte units_curr_hour = current_hour % 10;
 
-  uint8_t data[4] = {
-    current_hour / 10,
-    current_hour % 10,
-    current_minute / 10,
-    current_minute % 10
+  uint8_t data[] = {
+    tens_curr_hour == 0 ? 0x0 : display.encodeDigit(tens_curr_hour),
+    rtc.getSecond() % 2 == 0 ? 0x80 | display.encodeDigit(units_curr_hour) : display.encodeDigit(units_curr_hour),
+    display.encodeDigit(current_minute / 10),
+    display.encodeDigit(current_minute % 10)
   };
 
   display.setSegments(data);
-
-  uint8_t segto = 0x0;;
-  if (curr_time.second() % 2 == 0) {
-    int value = 1244;
-    segto = 0x80 | display.encodeDigit((value / 100) % 10);
-  }
-  display.setSegments(&segto, 1, 1);
 }
 
 void print_temperature() {
-  int temperature = (int) rtc.getTemperature();
+  byte temperature = rtc.getTemperature();
   uint8_t data[] = {
-    temperature / 10,
-    temperature % 10,
+    display.encodeDigit(temperature / 10),
+    display.encodeDigit(temperature % 10),
     0x63, // Degrees symbol
-    0x0
+    0x39
   };
   display.setSegments(data);
 }
 
 void loop() {
-  rtc.setClockMode(false);  // set to 24h
-  
+  _24HrsMode = digitalRead(_24_HRS_MODE_PIN);
+
   // handle button
   int event_btn_hours = btn_hours.handle();
-  int event_btn_minutes= btn_minutes.handle();
+  int event_btn_minutes = btn_minutes.handle();
 
-  if (event_btn_hours == EV_LONGPRESS) {
-    int current_hour = curr_time.hour();
-    int new_hour = current_hour < 24 ? current_hour + 1 : 0;
+  if (event_btn_hours == EV_SHORTPRESS) {
+    int current_hour = rtc.getHour(h12, PM);
+    int new_hour = current_hour < 23 ? current_hour + 1 : 0;
     rtc.setHour(new_hour);
-  } else if (event_btn_minutes == EV_LONGPRESS) {
-    int current_minute = curr_time.minute();
-    int new_minute = current_minute < 60 ? current_minute + 1 : 0;
+  } else if (event_btn_minutes == EV_SHORTPRESS) {
+    int current_minute = rtc.getMinute();
+    int new_minute = current_minute < 59 ? current_minute + 1 : 0;
     rtc.setMinute(new_minute);
   }
 
-  print_current_time();
-
-  if (curr_time.second() >= 57) {
+  if (rtc.getSecond() < 57) {
+    print_current_time();
+  } else {
     print_temperature();
   }
 
